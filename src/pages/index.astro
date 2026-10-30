@@ -1,0 +1,195 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { Font } from 'astro:assets';
+---
+
+<Layout>
+	<main class="flex min-h-screen">
+		<section id="interface" class="sticky top-0 h-screen w-72 shrink-0 bg-white p-4 border-2 border-white border-r-gray-200">
+			<h1 class="mb-4 text-xl text-[#0000D2] font-bold font-(family-name:--font-manrope)">iO Blue Line</h1>
+
+			<label for="width" class="block text-sm font-medium font-(family-name:--font-manrope)">Width (px)</label>
+			<input
+				id="width"
+				type="number"
+				value="800"
+				min="100"
+				max="4000"
+				step="10"
+				class="mb-4 w-full rounded border bg-white p-2"
+			/>
+
+			<label for="height" class="block text-sm font-medium font-(family-name:--font-manrope)">Height (px)</label>
+			<input
+				id="height"
+				type="number"
+				value="600"
+				min="100"
+				max="4000"
+				step="10"
+				class="mb-4 w-full rounded border bg-white p-2"
+			/>
+			<label for="thickness" class="block text-sm font-medium font-(family-name:--font-manrope)">
+	Thickness: <span id="thicknessValue">10</span> px
+</label>
+<input type="range" id="thickness" min="1" max="100" step="1" value="10" class="mb-4 w-full" />
+
+<p class="block text-sm font-medium font-(family-name:--font-manrope) mb-2">Edges (choose 2)</p>
+<div class="mb-4 grid grid-cols-2 gap-2">
+	<button data-edge="top" class="edge-btn rounded-full border border-[#0000D2] px-4 py-2 text-[#0000D2] font-(family-name:--font-manrope)">Top</button>
+	<button data-edge="bottom" class="edge-btn rounded-full border border-[#0000D2] px-4 py-2 text-[#0000D2] font-(family-name:--font-manrope)">Bottom</button>
+	<button data-edge="left" class="edge-btn rounded-full border border-[#0000D2] px-4 py-2 text-[#0000D2] font-(family-name:--font-manrope)">Left</button>
+	<button data-edge="right" class="edge-btn rounded-full border border-[#0000D2] px-4 py-2 text-[#0000D2] font-(family-name:--font-manrope)">Right</button>
+</div>
+
+<button id="newLine" class="mb-4 w-full rounded-full border border-[#0000D2] px-4 py-2 text-[#0000D2] font-(family-name:--font-manrope)">New line</button>
+<button id="saveSvg" class="w-full rounded-full bg-[#0000D2] px-4 py-2 text-white hover:bg-[#0000A0] font-(family-name:--font-manrope)">Save SVG</button>
+			
+		</section>
+
+		<section id="content" class="h-screen flex w-full content-center justify-center items-center overflow-auto bg-[#F4F4F4]">
+			<!-- p5 opretter selv canvas her -->
+		</section>
+	</main>
+</Layout>
+
+<script>
+	import p5 from 'p5';
+
+	const COLOR = '#0000D2';
+
+	const container = document.getElementById('content')!;
+	const widthInput = document.getElementById('width') as HTMLInputElement;
+	const heightInput = document.getElementById('height') as HTMLInputElement;
+	const thickness = document.getElementById('thickness') as HTMLInputElement;
+	const thicknessValue = document.getElementById('thicknessValue')!;
+	const newLineBtn = document.getElementById('newLine')!;
+	const saveBtn = document.getElementById('saveSvg')!;
+	const edgeBtns = document.querySelectorAll<HTMLButtonElement>('.edge-btn');
+
+	type Edge = 'top' | 'bottom' | 'left' | 'right';
+
+	// Punkt på kanten (0-1) + retning indad fra kanten
+	const edgePoint = (edge: Edge, t: number) => {
+		switch (edge) {
+			case 'top':    return { x: t, y: 0, nx: 0,  ny: 1 };
+			case 'bottom': return { x: t, y: 1, nx: 0,  ny: -1 };
+			case 'left':   return { x: 0, y: t, nx: 1,  ny: 0 };
+			case 'right':  return { x: 1, y: t, nx: -1, ny: 0 };
+		}
+	};
+
+	// Tilstand
+	let edges: Edge[] = ['left', 'right'];
+	const rand = (min: number, max: number) => min + Math.random() * (max - min);
+	const randomShape = () => ({
+		t0: rand(0.15, 0.85), t1: rand(0.15, 0.85), // hvor på kanterne
+		k0: rand(0.3, 0.8),   k1: rand(0.3, 0.8),   // hvor langt kontrolpunkterne rækker ind
+		s0: rand(-0.3, 0.3),  s1: rand(-0.3, 0.3),  // sidelæns forskydning
+	});
+	let shape = randomShape();
+
+	const readSize = () => {
+		const clamp = (input: HTMLInputElement) => {
+			const value = Number(input.value);
+			if (!value) return Number(input.defaultValue);
+			return Math.min(Number(input.max), Math.max(Number(input.min), value));
+		};
+		return { w: clamp(widthInput), h: clamp(heightInput) };
+	};
+
+	// Beregner de 4 bezier-punkter i pixels (eller null hvis < 2 kanter)
+	const getCurve = (w: number, h: number) => {
+		if (edges.length < 2) return null;
+		const a = edgePoint(edges[0], shape.t0);
+		const b = edgePoint(edges[1], shape.t1);
+		const x0 = a.x * w, y0 = a.y * h;
+		const x3 = b.x * w, y3 = b.y * h;
+		const dist = Math.hypot(x3 - x0, y3 - y0);
+
+		const x1 = x0 + (a.nx * shape.k0 + -a.ny * shape.s0) * dist;
+		const y1 = y0 + (a.ny * shape.k0 +  a.nx * shape.s0) * dist;
+		const x2 = x3 + (b.nx * shape.k1 + -b.ny * shape.s1) * dist;
+		const y2 = y3 + (b.ny * shape.k1 +  b.nx * shape.s1) * dist;
+		return { x0, y0, x1, y1, x2, y2, x3, y3 };
+	};
+
+	new p5((p: p5) => {
+		p.setup = () => {
+			const { w, h } = readSize();
+			p.createCanvas(w, h).parent(container);
+			p.noLoop(); // tegn kun når noget ændrer sig
+
+			const update = () => {
+				const { w, h } = readSize();
+				p.resizeCanvas(w, h);
+				p.redraw();
+			};
+			widthInput.addEventListener('input', update);
+			heightInput.addEventListener('input', update);
+
+			thickness.addEventListener('input', () => {
+				thicknessValue.textContent = thickness.value;
+				p.redraw();
+			});
+
+			newLineBtn.addEventListener('click', () => {
+				shape = randomShape();
+				p.redraw();
+			});
+
+			edgeBtns.forEach((btn) => {
+				btn.addEventListener('click', () => {
+					const edge = btn.dataset.edge as Edge;
+					edges = edges.includes(edge)
+						? edges.filter((e) => e !== edge)
+						: [...edges, edge].slice(-2); // max 2, den ældste falder af
+					renderEdgeButtons();
+					p.redraw();
+				});
+			});
+
+			saveBtn.addEventListener('click', () => saveSvg());
+			renderEdgeButtons();
+		};
+
+		p.draw = () => {
+			p.background(255);
+			const c = getCurve(p.width, p.height);
+			if (!c) return;
+			p.noFill();
+			p.stroke(COLOR);
+			p.strokeWeight(Number(thickness.value));
+			p.strokeCap(p.ROUND);
+			p.bezier(c.x0, c.y0, c.x1, c.y1, c.x2, c.y2, c.x3, c.y3);
+		};
+	});
+
+	// Markerer aktive kantknapper
+	function renderEdgeButtons() {
+		edgeBtns.forEach((btn) => {
+			const active = edges.includes(btn.dataset.edge as Edge);
+			btn.classList.toggle('bg-[#0000D2]', active);
+			btn.classList.toggle('text-white', active);
+			btn.classList.toggle('text-[#0000D2]', !active);
+		});
+	}
+
+	function saveSvg() {
+		const { w, h } = readSize();
+		const c = getCurve(w, h);
+		if (!c) return;
+		const svg =
+			`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">` +
+			`<rect width="100%" height="100%" fill="#fff"/>` +
+			`<path d="M ${c.x0} ${c.y0} C ${c.x1} ${c.y1}, ${c.x2} ${c.y2}, ${c.x3} ${c.y3}" ` +
+			`fill="none" stroke="${COLOR}" stroke-width="${thickness.value}" stroke-linecap="round"/>` +
+			`</svg>`;
+		const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = 'blue-line.svg';
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+</script>
